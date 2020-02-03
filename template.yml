@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  AccountName:
+    Type: String
+  RoleName:
+    Type: String
+  FromUserArn:
+    Type: String
+  SlackIncommingWebhookUrl:
+    Type: String
+  DefaultMaxSessionDuration:
+    Type: Number
+    Default: 43200
+  DefaultCloudTrailBucketExpirationInDays:
+    Type: Number
+    Default: 45
+
+
+Resources:
+  SwitchTargetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      MaxSessionDuration: !Ref DefaultMaxSessionDuration
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref FromUserArn
+            Action: sts:AssumeRole
+            Condition:
+              Bool:
+                aws:MultiFactorAuthPresent: true
+      Path: !Sub /${AWS::StackName}/
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+
+  CloudTrailBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      LifecycleConfiguration:
+        Rules:
+          - Status: Enabled
+            ExpirationInDays: !Ref DefaultCloudTrailBucketExpirationInDays
+
+  CloudTrailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CloudTrailBucket
+      PolicyDocument:
+        Statement:
+          - Sid: AWSCloudTrailAclCheck
+            Effect: Allow
+            Action: s3:GetBucketAcl
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Resource: !GetAtt CloudTrailBucket.Arn
+          - Sid: AWSCloudTrailWrite
+            Effect: Allow
+            Action: s3:PutObject
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Resource: !Sub ${CloudTrailBucket.Arn}/*
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
+
+  CloudTrailResource:
+    Type: AWS::CloudTrail::Trail
+    DependsOn: CloudTrailBucketPolicy
+    Properties:
+      S3BucketName: !Ref CloudTrailBucket
+      IsLogging: true
+      EnableLogFileValidation: true
+      IncludeGlobalServiceEvents: true
+      IsMultiRegionTrail: true
+
+  DailyBillingAlertApplication:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location:
+        ApplicationId: arn:aws:serverlessrepo:us-east-1:219018483479:applications/daily-billing-report-to-slack
+        SemanticVersion: 0.2.0
+      Parameters:
+        SlackIncommingWebhookUrl: !Ref SlackIncommingWebhookUrl
+        AccountName: !Ref AccountName

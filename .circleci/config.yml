@@ -1,0 +1,25 @@
+version: 2.1
+
+jobs:
+  deploy:
+    docker:
+      - image: 'cimg/python:3.6'
+    steps:
+      - checkout
+      - aws-s3/copy:
+          from: template.yml
+          to: s3://luciferous-public-cfn-templates/aws-initialize-template.yml
+
+orbs:
+  aws-s3: circleci/aws-s3@1.0.15
+
+workflows:
+  version: 2
+  deploy_flow:
+    jobs:
+      - deploy:
+          filters:
+            branches:
+              ignoer: /.*/
+            tags:
+              only: /v([0-9]+\.){2}[0-9]+/
